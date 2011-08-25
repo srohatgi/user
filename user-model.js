@@ -8,9 +8,6 @@ var IdentityData = new Schema({
     identity: String
   , passwd: String
   , owa_url: String
-  , auth_url: String
-  , openid_url: String
-  , oauth_url: String
 });
 
 var myAccount = new Schema({
@@ -27,7 +24,8 @@ var myAccount = new Schema({
 var myUser = new Schema({
     name: String
   , accountId: ObjectId
-  , email: String
+  , login: { type: String, unique: true }
+  , email: [String]
   , identities: [IdentityData]
   , created_by: String
   , created_at: {type: Date, default: Date.now }
@@ -42,30 +40,69 @@ UserModel = function(host, port) {
   mongoose.connect('mongodb://'+host+':'+port+'/user');
 };
 
-UserModel.prototype.save = function(doc, callback) {
+UserModel.prototype.login = function(doc, callback) {
+  User.findOne({"login": doc.login}, function (error, rec) {
+    if ( error ) callback(error);
+    else {
+      if ( rec.identities[0].identity == 'plain' ) {
+        var shasum = crypto.createHash('sha1');
+        shasum.update(doc.passwd);
+        doc.passwd = shasum.digest('hex');
+        if ( rec.passwd != doc.passwd )  callback(error);
+        else callback(null,rec._id);
+      }
+      else if ( rec.identities[0].identity == 'owa' ) {
+        // TODO: do owa login here
+      }
+      callback(null,rec._id);
+    }
+  });
+}
+
+UserModel.prototype.createAccount = function(doc, callback) {
+  var account = new Account();
+  account.name = doc.acct_name;
+  account.description = doc.acct_description;
+  account.allowed_identities = [doc.identity];
+
+  account.save(function (error) {
+    if ( error ) {
+      console.log("unable to save account:"+JSON.stringify(doc));  
+      callback(error);
+    }
+    else {
+      console.log("saved account:"+JSON.stringify(account));
+      doc.accountId = account._id;
+      my_user_save(doc,callback);
+    }
+  });
+};
+
+UserModel.prototype.save = my_user_save;
+
+var my_user_save = function(doc, callback) {
   var user = new User();
   user.name = doc.name;
-  user.accountId = doc.account;
-  user.email = doc.email;
-  if ( typeof(doc.identities.length)=="undefined" ) doc.identities = [doc.identities];
-  for (var i=0;i<doc.identities.length;i++) {
-    var idata = doc.identities[i];
-    if ( idata.identity == 'plain' ) {
-      var shasum = crypto.createHash('sha1');
-      shasum.update(idata.passwd);
-      idata.passwd = shasum.digest('hex');
-    }
+  user.accountId = doc.accountId;
+  user.email = [doc.email];
+  console.log("trying to save user: "+JSON.stringify(doc));
+  if ( doc.identity == 'plain' ) {
+    var shasum = crypto.createHash('sha1');
+    shasum.update(doc.passwd);
+    user.identities = [{identity: doc.identity, passwd: shasum.digest('hex')}];
   }
-  user.identities = doc.identities;
-  user.created_by = doc.created_by;
-  user.save(function (error, callback) { 
+  else if ( doc.identity == 'owa' ) {
+    user.owa_url = doc.owa_url;
+    user.identities = [{identity: doc.identity, owa_url: doc.owa_url}];
+  }
+  user.save(function (error) {
     if ( error ) {
       console.log("unable to save user:"+JSON.stringify(doc));  
       callback(error);
     }
     else {
       console.log("saved user:"+JSON.stringify(user));
-      callback(null,user._id);
+      callback(null,this._id);
     }
   });
 };
