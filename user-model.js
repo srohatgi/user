@@ -41,14 +41,14 @@ UserModel = function(host, port) {
 };
 
 UserModel.prototype.login = function(doc, callback) {
+  console.log("login buffer in: "+JSON.stringify(doc));
   User.findOne({"login": doc.login}, function (error, rec) {
     if ( error ) callback(error);
     else {
       if ( rec.identities[0].identity == 'plain' ) {
         var shasum = crypto.createHash('sha1');
         shasum.update(doc.passwd);
-        doc.passwd = shasum.digest('hex');
-        if ( rec.passwd != doc.passwd )  callback(error);
+        if ( rec.passwd != shasum.digest('hex') )  callback(error);
         else callback(null,rec._id);
       }
       else if ( rec.identities[0].identity == 'owa' ) {
